@@ -1,14 +1,21 @@
 import json
 import os
 
-FILE_PATH = "data.json"
+STORAGE_FILE = "storage.json"
+
 
 def load_data():
-    if not os.path.exists(FILE_PATH):
+    """Charge les anciens ELO depuis storage.json"""
+    if not os.path.exists(STORAGE_FILE):
         return {}
-    with open(FILE_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(STORAGE_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
 
 def save_data(data):
-    with open(FILE_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    """Sauvegarde les ELO actuels dans storage.json"""
+    with open(STORAGE_FILE, "w") as f:
+        json.dump(data, f)
