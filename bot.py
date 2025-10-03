@@ -1,72 +1,50 @@
 import os
 import requests
 from flask import Flask
-from storage import load_data, save_data
+from storage.py import load_previous_data, save_current_data
+
+# Variables d'environnement depuis Render
+TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
+LEADERBOARD_URL = os.environ["LEADERBOARD_URL"]
 
 app = Flask(__name__)
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-LEADERBOARD_URL = os.getenv("LEADERBOARD_URL")
-
-
-def send_telegram_message(message: str):
-    """Envoie un message sur Telegram via l’API Bot."""
+def send_message(text):
+    """Envoie un message sur Telegram."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"Erreur en envoyant le message Telegram: {e}")
-
-
-def fetch_leaderboard():
-    """Récupère le leaderboard depuis l’API."""
-    response = requests.get(LEADERBOARD_URL)
-    response.raise_for_status()
-    return response.json()
-
+    requests.post(url, data={"chat_id": CHAT_ID, "text": text})
 
 def run_check():
-    """Compare les ELO avec l’ancienne sauvegarde et envoie des notifs si ça change."""
-    old_data = load_data()
-    new_data = fetch_leaderboard()
+    """Récupère les données du leaderboard, compare et envoie les changements."""
+    try:
+        response = requests.get(LEADERBOARD_URL, timeout=10)
+        response.raise_for_status()
+        players = response.json()  # ← JSON est bien une liste de dicts
 
-    for player in new_data:
-        name = player.get("name")
-        elo = player.get("elo")
+        previous_data = load_previous_data()
+        current_data = {p["username"]: {"elo": p["elo"], "eloToday": p["eloToday"]} for p in players}
 
-        if not name or elo is None:
-            continue
-
-        # Ancien score (None si joueur nouveau)
-        old_elo = old_data.get(name)
-
-        # Si nouveau joueur ou changement d’elo
-        if old_elo is None or old_elo != elo:
-            if elo >= 10000:
-                message = f"⚠️ Le joueur {name} est maintenant à {elo} ELO (ancien: {old_elo})"
-            elif elo >= 8000:
-                message = f"Le joueur {name} est maintenant à {elo} ELO (ancien: {old_elo})"
+        # Compare avec la dernière exécution
+        for username, data in current_data.items():
+            old = previous_data.get(username)
+            if old:
+                if data["elo"] != old["elo"] or data["eloToday"] != old["eloToday"]:
+                    send_message(
+                        f"📊 {username} a changé :\n"
+                        f"ELO: {old['elo']} → {data['elo']}\n"
+                        f"ELO Today: {old['eloToday']} → {data['eloToday']}"
+                    )
             else:
-                message = None
+                send_message(f"🆕 Nouveau joueur détecté : {username} (ELO {data['elo']})")
 
-            if message:
-                send_telegram_message(message)
+        save_current_data(current_data)
 
-        # Mise à jour dans la sauvegarde
-        old_data[name] = elo
+    except Exception as e:
+        send_message(f"❌ Erreur lors de la récupération du leaderboard: {e}")
 
-    save_data(old_data)
-
-
-@app.route("/")
+@app.route("/", methods=["GET", "HEAD"])
 def index():
-    """Point d’entrée appelé par UptimeRobot pour exécuter la vérification."""
     run_check()
-    return "Leaderboard check executed!", 200
+    return "Bot is running!", 200
 
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
