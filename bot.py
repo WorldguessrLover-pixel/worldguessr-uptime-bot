@@ -3,7 +3,6 @@ import time
 import json
 import os
 from flask import Flask
-from config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, LEADERBOARD_URL
 from storage import load_data, save_data
 
 app = Flask(__name__)
