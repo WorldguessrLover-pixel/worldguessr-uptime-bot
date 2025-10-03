@@ -1,81 +1,80 @@
-import os
-import json
 import requests
+import time
+import json
+import os
 from flask import Flask
+from config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, LEADERBOARD_URL
 from storage import load_data, save_data
 
 app = Flask(__name__)
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-LEADERBOARD_URL = "https://www.geoguessr.com/api/leaderboard"  # adapte si besoin
+STORAGE_FILE = "storage.json"
 
-
-def send_telegram_message(message: str):
-    """Envoie un message sur Telegram."""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
-        requests.post(url, json=payload)
+        response = requests.post(url, json=payload)
+        if response.status_code != 200:
+            print("Erreur lors de l'envoi du message Telegram:", response.text)
     except Exception as e:
-        print("Erreur envoi Telegram:", e)
+        print("Exception lors de l'envoi Telegram:", str(e))
 
-
-def fetch_leaderboard():
-    """Récupère les données du leaderboard depuis l’API."""
+def check_leaderboard():
     try:
-        response = requests.get(LEADERBOARD_URL, timeout=10)
+        response = requests.get(LEADERBOARD_URL)
         if response.status_code == 200:
-            return response.json()
+            leaderboard = response.json()
+            old_data = load_data()
+            new_data = {}
+
+            for player in leaderboard:
+                name = player["name"]
+                elo = player["elo"]
+                new_data[name] = elo
+
+                # Comparaison avec anciennes données
+                if name in old_data:
+                    old_elo = old_data[name]
+                    if elo != old_elo:
+                        diff = elo - old_elo
+                        send_telegram_message(f"{name} a changé : {old_elo} → {elo} (diff: {diff})")
+                else:
+                    send_telegram_message(f"Nouveau joueur détecté: {name} avec {elo} Elo")
+
+            save_data(new_data)
         else:
-            print("Erreur API:", response.status_code, response.text)
+            print("Erreur récupération leaderboard:", response.status_code)
     except Exception as e:
-        print("Erreur de requête:", e)
-    return []
-
-
-def run_check():
-    """Compare les données actuelles avec celles stockées."""
-    old_data = load_data()
-    leaderboard = fetch_leaderboard()
-
-    if not leaderboard:
-        return
-
-    new_data = {}
-    for player in leaderboard:
-        if isinstance(player, dict):  # sécurité
-            name = player.get("name")
-            rating = player.get("rating")
-
-            if name and rating:
-                old_rating = old_data.get(name)
-                if old_rating is not None and rating != old_rating:
-                    diff = rating - old_rating
-                    message = f"{name} a changé d’elo : {old_rating} → {rating} ({diff:+})"
-                    send_telegram_message(message)
-
-                new_data[name] = rating
-
-    save_data(new_data)
-
+        print("Exception lors du check leaderboard:", str(e))
 
 @app.route("/")
-def index():
-    run_check()
-    return "OK", 200
+def home():
+    return "Bot is running!"
 
-
-# ✅ Route spéciale pour afficher storage.json dans les logs
 @app.route("/show-logs")
 def show_logs():
-    data = load_data()
-    print("=== CONTENU storage.json ===")
-    print(json.dumps(data, indent=2, ensure_ascii=False))
-    print("============================")
-    return "Données affichées dans les logs !", 200
-
+    if os.path.exists(STORAGE_FILE):
+        with open(STORAGE_FILE, "r") as f:
+            data = json.load(f)
+        print("=== CONTENU storage.json ===")
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        print("============================")
+        return f"<pre>{json.dumps(data, indent=2, ensure_ascii=False)}</pre>"
+    else:
+        return "storage.json n'existe pas encore."
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    # Lancer le bot + serveur Flask
+    import threading
+
+    def run_flask():
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+    def run_checker():
+        while True:
+            check_leaderboard()
+            time.sleep(300)  # toutes les 5 minutes
+
+    threading.Thread(target=run_flask).start()
+    run_checker()
