@@ -1,7 +1,7 @@
 import os
 import requests
 from flask import Flask
-from storage.py import load_previous_data, save_current_data
+from storage import load_previous_data, save_current_data
 
 # Variables d'environnement depuis Render
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
