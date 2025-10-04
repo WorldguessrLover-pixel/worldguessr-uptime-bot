@@ -1,65 +1,83 @@
 import requests
+import os
 import time
-from telegram import Bot
+from datetime import datetime
 from storage import load_data, save_data
 
-# ⚠️ Mets tes vrais identifiants ici
-TELEGRAM_TOKEN = "TON_TELEGRAM_BOT_TOKEN"
-CHAT_ID = "TON_CHAT_ID"
-LEADERBOARD_URL = "https://worldguessr-leaderboard-url/api"  # à adapter
+# Variables d’environnement (Render → Environment)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+LEADERBOARD_URL = os.getenv("LEADERBOARD_URL")
 
-bot = Bot(token=TELEGRAM_TOKEN)
+CHECK_INTERVAL = 300  # 5 minutes
 
-def send_telegram_message(message):
-    """Envoie un message Telegram via python-telegram-bot"""
-    try:
-        bot.send_message(chat_id=CHAT_ID, text=message)
-        print(f"[Telegram] {message}")  # log aussi dans Render
-    except Exception as e:
-        print(f"Erreur Telegram: {e}")
 
 def fetch_leaderboard():
-    """Récupère les données du leaderboard"""
+    """Récupère les données du leaderboard depuis l'URL."""
     try:
         response = requests.get(LEADERBOARD_URL, timeout=10)
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"Erreur fetch leaderboard: {e}")
+        print(f"[{datetime.now()}] Erreur lors du fetch leaderboard: {e}")
         return []
 
-def check_updates():
-    """Compare leaderboard actuel avec stockage"""
-    old_data = load_data()
-    old_users = {u["username"]: u["elo"] for u in old_data.get("users", [])}
-    
-    leaderboard = fetch_leaderboard()
-    if not leaderboard:
-        print("⚠️ Leaderboard vide ou erreur API")
+
+def send_telegram_message(message):
+    """Envoie un message via Telegram."""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("⚠️ TELEGRAM_TOKEN ou TELEGRAM_CHAT_ID non défini")
         return
 
-    updated_users = []
-    for entry in leaderboard:
-        username = entry.get("username")
-        elo = entry.get("elo")
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"[{datetime.now()}] Erreur envoi Telegram: {e}")
+
+
+def check_leaderboard():
+    """Compare le leaderboard actuel avec les données sauvegardées."""
+    old_data = load_data()
+    old_players = {p["username"]: p["elo"] for p in old_data.get("players", [])}
+
+    new_data = fetch_leaderboard()
+    if not new_data:
+        return
+
+    messages = []
+    new_players = []
+
+    for player in new_data:
+        username = player.get("username")
+        elo = player.get("elo")
+
         if not username or elo is None:
             continue
 
-        old_elo = old_users.get(username)
-        if old_elo is None:
-            send_telegram_message(f"🎉 Nouveau joueur détecté: {username} avec {elo} elo")
-        elif elo != old_elo:
-            diff = elo - old_elo
-            emoji = "⬆️" if diff > 0 else "⬇️"
-            send_telegram_message(f"{emoji} {username} est passé de {old_elo} → {elo} elo ({'+' if diff>0 else ''}{diff})")
+        new_players.append({"username": username, "elo": elo})
 
-        updated_users.append({"username": username, "elo": elo})
+        # Vérifie si le joueur existait et compare son elo
+        old_elo = old_players.get(username)
+        if old_elo is not None and elo != old_elo:
+            messages.append(f"⚡ {username} : ELO changé {old_elo} → {elo}")
 
-    save_data(updated_users)
-    print(f"[OK] Sauvegarde effectuée avec {len(updated_users)} joueurs")
+    # Sauvegarde les nouvelles données (toujours)
+    save_data(new_players)
+
+    # Envoie les messages Telegram si changement
+    for msg in messages:
+        send_telegram_message(msg)
+
+
+def main():
+    """Boucle principale qui tourne toutes les 5 minutes."""
+    print("✅ Bot démarré et tourne en continu...")
+    while True:
+        check_leaderboard()
+        time.sleep(CHECK_INTERVAL)
+
 
 if __name__ == "__main__":
-    while True:
-        print("🔄 Vérification du leaderboard...")
-        check_updates()
-        time.sleep(300)  # 5 minutes
+    main()
