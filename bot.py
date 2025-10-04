@@ -1,66 +1,74 @@
-import time
 import requests
-from storage import load_data, save_data
-from flask import Flask
+import time
 import threading
 import os
+from storage import load_data, save_data
 
+# Récupérer depuis les variables d'environnement Render
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 LEADERBOARD_URL = os.getenv("LEADERBOARD_URL")
 
-
-app = Flask(__name__)
-
-# Fonction pour envoyer un message test sur Telegram
+# Fonction pour envoyer un message à Telegram
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
-        r = requests.post(url, json=payload)
-        print("📨 Message Telegram envoyé:", r.json())
+        requests.post(url, data=data)
     except Exception as e:
-        print("❌ Erreur envoi Telegram:", e)
+        print("Erreur envoi Telegram:", e)
 
-# Fonction pour vérifier et simuler le leaderboard
+# Fonction qui check le leaderboard
 def check_leaderboard():
-    data = load_data()
+    try:
+        response = requests.get(LEADERBOARD_URL)
+        leaderboard = response.json()
 
-    # 🔹 Test forcé : si le fichier est vide, on ajoute une entrée fictive
-    if not data:
-        print("⚡ Aucune donnée détectée, ajout d'une entrée fictive pour test...")
-        data = {
+        players = []
+        for player in leaderboard.get("players", []):
+            players.append({
+                "name": player.get("name"),
+                "score": player.get("score")
+            })
+
+        # DEBUG : afficher les joueurs dans les logs Render
+        print("=== DEBUG - Joueurs récupérés ===")
+        print(players)
+
+        # Sauvegarde des données (même si pas de changement)
+        save_data({
             "last_check": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "players": [
-                {"name": "TestUser", "score": 9999}
-            ]
-        }
-        save_data(data)
-        send_telegram_message("✅ Bot en ligne ! Données de test enregistrées.")
-    else:
-        print("📡 Données déjà présentes, pas besoin de test.")
+            "players": players
+        })
 
-    return data
+        # Exemple de notif si un joueur > 8000
+        for p in players:
+            if p["score"] >= 8000:
+                send_telegram_message(f"🔥 {p['name']} est maintenant à {p['score']} ELO !")
 
-# Tâche en arrière-plan
-def run_checker():
+    except Exception as e:
+        print("Erreur dans check_leaderboard:", e)
+
+# Lancer la vérif toutes les 5 minutes
+def start_loop():
     while True:
         check_leaderboard()
-        time.sleep(60)  # vérifie toutes les 60 secondes
+        time.sleep(300)
+
+# Lancer dans un thread
+threading.Thread(target=start_loop, daemon=True).start()
+
+# Flask pour que Render garde le service actif
+from flask import Flask
+app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot WorldGuessr est en ligne 🚀"
+    return "Bot is running!"
 
 @app.route('/show-logs')
 def show_logs():
     data = load_data()
     if not data:
-        return "storage.json n'existe pas encore ou est vide."
-    return str(data)
-
-# Lancer le checker dans un thread parallèle
-threading.Thread(target=run_checker, daemon=True).start()
-
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=10000)
+        return "storage.json n'existe pas encore."
+    return data
