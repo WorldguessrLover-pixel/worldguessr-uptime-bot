@@ -1,4 +1,4 @@
-requests
-flask
-python-telegram-bot
-imghdr-py
+requests==2.32.3
+flask==3.0.3
+python-telegram-bot==20.7
+imghdr-py==0.4.2
