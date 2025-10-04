@@ -1,25 +1,33 @@
 from flask import Flask
 import threading
-import bot  # ton script qui check le leaderboard et envoie à Telegram
+import time
+import bot  # on importe ton fichier bot.py
 
 app = Flask(__name__)
 
-@app.route('/')
+# Route pour vérifier que le service est vivant
+@app.route("/")
 def home():
-    return "Bot is running ✅"
+    return "OK", 200
 
-@app.route('/show-logs')
-def show_logs():
-    try:
-        with open("storage.json", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return "storage.json n'existe pas encore."
 
-# On démarre le bot dans un thread séparé
-def run_bot():
-    bot.start_bot()
+# Fonction qui lance la boucle de check
+def background_task():
+    while True:
+        try:
+            print("🔄 Lancement du check du leaderboard...")
+            bot.run_check()  # appelle la fonction principale de ton bot
+        except Exception as e:
+            print(f"❌ Erreur dans run_check : {e}")
+        time.sleep(300)  # attend 5 minutes (300 secondes)
+
+
+# Lancer la boucle en parallèle du serveur Flask
+def start_background():
+    thread = threading.Thread(target=background_task, daemon=True)
+    thread.start()
+
 
 if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=10000)
+    start_background()
+    app.run(host="0.0.0.0", port=10000)  # Render attend que tu écoutes sur 0.0.0.0
