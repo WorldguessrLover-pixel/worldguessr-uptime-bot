@@ -1,65 +1,82 @@
-import requests
-import time
-import threading
 import os
-from storage import load_data, save_data
+import time
+import requests
+import threading
+import json
 from flask import Flask
 
-# Récupérer depuis les variables d'environnement Render
+# Variables depuis Render (Dashboard > Environment)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+CHAT_ID = os.getenv("CHAT_ID")
 LEADERBOARD_URL = os.getenv("LEADERBOARD_URL")
 
-# Fonction pour envoyer un message à Telegram
-def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
-    try:
-        requests.post(url, data=data)
-    except Exception as e:
-        print("Erreur envoi Telegram:", e)
+STORAGE_FILE = "storage.json"
 
-# Fonction qui check le leaderboard
+def save_data(data):
+    """Sauvegarde toujours, même si data est vide"""
+    try:
+        with open(STORAGE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print("✅ storage.json mis à jour")
+    except Exception as e:
+        print("❌ Erreur save_data:", e)
+
+def load_data():
+    if not os.path.exists(STORAGE_FILE):
+        return {}
+    with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def send_telegram_message(msg):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+        print("📩 Message Telegram envoyé:", msg)
+    except Exception as e:
+        print("❌ Erreur Telegram:", e)
+
 def check_leaderboard():
     try:
         response = requests.get(LEADERBOARD_URL)
         leaderboard = response.json()
 
+        # DEBUG : afficher le JSON brut
+        print("=== DEBUG JSON ===")
+        print(leaderboard)
+
         players = []
-        for player in leaderboard:  # <-- car l’API renvoie directement une liste
+        for player in leaderboard:
             players.append({
                 "name": player.get("username"),
                 "elo": player.get("elo")
             })
 
-        # DEBUG : afficher les joueurs dans les logs Render
-        print("=== DEBUG - Joueurs récupérés ===")
-        print(players)
-
-        # Sauvegarde dans storage.json
-        save_data({
+        data = {
             "last_check": time.strftime("%Y-%m-%d %H:%M:%S"),
             "players": players
-        })
+        }
 
-        # Exemple : notif si un joueur dépasse 8000 elo
+        save_data(data)
+
         for p in players:
             if p["elo"] >= 8000:
                 send_telegram_message(f"🔥 {p['name']} est maintenant à {p['elo']} ELO !")
 
     except Exception as e:
-        print("Erreur dans check_leaderboard:", e)
+        print("❌ Erreur check_leaderboard:", e)
+        # Forcer quand même une sauvegarde vide
+        save_data({"last_check": time.strftime("%Y-%m-%d %H:%M:%S"), "players": []})
 
-# Lancer la vérif toutes les 5 minutes
 def start_loop():
     while True:
         check_leaderboard()
         time.sleep(300)
 
-# Lancer dans un thread
+# Lancer directement une première vérif
+check_leaderboard()
+
 threading.Thread(target=start_loop, daemon=True).start()
 
-# Flask pour que Render garde le service actif
 app = Flask(__name__)
 
 @app.route('/')
@@ -68,7 +85,4 @@ def home():
 
 @app.route('/show-logs')
 def show_logs():
-    data = load_data()
-    if not data:
-        return "storage.json n'existe pas encore."
-    return data
+    return load_data()
