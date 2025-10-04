@@ -3,6 +3,7 @@ import time
 import threading
 import os
 from storage import load_data, save_data
+from flask import Flask
 
 # Récupérer depuis les variables d'environnement Render
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -25,26 +26,26 @@ def check_leaderboard():
         leaderboard = response.json()
 
         players = []
-        for player in leaderboard.get("players", []):
+        for player in leaderboard:  # <-- car l’API renvoie directement une liste
             players.append({
-                "name": player.get("name"),
-                "score": player.get("score")
+                "name": player.get("username"),
+                "elo": player.get("elo")
             })
 
         # DEBUG : afficher les joueurs dans les logs Render
         print("=== DEBUG - Joueurs récupérés ===")
         print(players)
 
-        # Sauvegarde des données (même si pas de changement)
+        # Sauvegarde dans storage.json
         save_data({
             "last_check": time.strftime("%Y-%m-%d %H:%M:%S"),
             "players": players
         })
 
-        # Exemple de notif si un joueur > 8000
+        # Exemple : notif si un joueur dépasse 8000 elo
         for p in players:
-            if p["score"] >= 8000:
-                send_telegram_message(f"🔥 {p['name']} est maintenant à {p['score']} ELO !")
+            if p["elo"] >= 8000:
+                send_telegram_message(f"🔥 {p['name']} est maintenant à {p['elo']} ELO !")
 
     except Exception as e:
         print("Erreur dans check_leaderboard:", e)
@@ -59,7 +60,6 @@ def start_loop():
 threading.Thread(target=start_loop, daemon=True).start()
 
 # Flask pour que Render garde le service actif
-from flask import Flask
 app = Flask(__name__)
 
 @app.route('/')
