@@ -3,7 +3,12 @@ import requests
 from storage import load_data, save_data
 from flask import Flask
 import threading
-from config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, LEADERBOARD_URL
+import os
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+LEADERBOARD_URL = os.getenv("LEADERBOARD_URL")
+
 
 app = Flask(__name__)
 
