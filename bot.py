@@ -6,32 +6,40 @@ LEADERBOARD_URL = os.getenv("LEADERBOARD_URL", "https://api.worldguessr.com/api/
 
 def check_leaderboard():
     print("🔍 Vérification du leaderboard...")
+
+    params = {
+        "username": "testuser",
+        "pastDay": "today",
+        "mode": "elo"
+    }
+
     try:
-        print(f"🌐 Requête vers {LEADERBOARD_URL}")
-        response = requests.get(LEADERBOARD_URL, timeout=10)
+        print(f"🌐 Requête vers {LEADERBOARD_URL} avec paramètres {params}")
+        response = requests.get(LEADERBOARD_URL, params=params, timeout=10)
 
-        # Si le code HTTP n’est pas 200
+        print(f"📡 Code HTTP : {response.status_code}")
+
+        # Si code ≠ 200
         if response.status_code != 200:
-            print(f"❌ Erreur HTTP {response.status_code} : {response.text[:200]}")
+            print(f"❌ Erreur HTTP {response.status_code}")
+            print(f"🧾 Contenu : {response.text[:300]}")
             return
 
-        # Si le contenu est vide
+        # Si la réponse est vide
         if not response.text.strip():
-            print("⚠️ Réponse vide reçue de l’API.")
+            print("⚠️ Réponse vide reçue.")
             return
 
-        # Essai de conversion en JSON
+        # Tentative de décodage JSON
         try:
             data = response.json()
-        except Exception as e:
-            print(f"⚠️ Impossible de décoder la réponse JSON : {e}")
-            print(f"🧾 Contenu reçu : {response.text[:500]}")
-            return
+            print(f"✅ Réponse JSON correcte — {len(data)} éléments trouvés.")
+        except Exception:
+            print("⚠️ Réponse non JSON, contenu brut :")
+            print(response.text[:500])
 
-        # Si l’API a bien renvoyé des données
-        print(f"✅ Données récupérées : {len(data)} éléments reçus.")
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"🕒 Dernière vérification réussie à {now}")
+        print(f"🕒 Vérification terminée à {now}")
 
     except requests.exceptions.RequestException as e:
-        print(f"❌ Erreur lors de la requête : {e}")
+        print(f"❌ Erreur réseau : {e}")
