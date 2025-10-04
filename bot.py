@@ -1,88 +1,65 @@
-import os
-import time
 import requests
-import threading
-import json
-from flask import Flask
+import time
+from telegram import Bot
+from storage import load_data, save_data
 
-# Variables depuis Render (Dashboard > Environment)
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-LEADERBOARD_URL = os.getenv("LEADERBOARD_URL")
+# ⚠️ Mets tes vrais identifiants ici
+TELEGRAM_TOKEN = "TON_TELEGRAM_BOT_TOKEN"
+CHAT_ID = "TON_CHAT_ID"
+LEADERBOARD_URL = "https://worldguessr-leaderboard-url/api"  # à adapter
 
-STORAGE_FILE = "storage.json"
+bot = Bot(token=TELEGRAM_TOKEN)
 
-def save_data(data):
-    """Sauvegarde toujours, même si data est vide"""
+def send_telegram_message(message):
+    """Envoie un message Telegram via python-telegram-bot"""
     try:
-        with open(STORAGE_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        print("✅ storage.json mis à jour")
+        bot.send_message(chat_id=CHAT_ID, text=message)
+        print(f"[Telegram] {message}")  # log aussi dans Render
     except Exception as e:
-        print("❌ Erreur save_data:", e)
+        print(f"Erreur Telegram: {e}")
 
-def load_data():
-    if not os.path.exists(STORAGE_FILE):
-        return {}
-    with open(STORAGE_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def send_telegram_message(msg):
+def fetch_leaderboard():
+    """Récupère les données du leaderboard"""
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
-        print("📩 Message Telegram envoyé:", msg)
+        response = requests.get(LEADERBOARD_URL, timeout=10)
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
-        print("❌ Erreur Telegram:", e)
+        print(f"Erreur fetch leaderboard: {e}")
+        return []
 
-def check_leaderboard():
-    try:
-        response = requests.get(LEADERBOARD_URL)
-        leaderboard = response.json()
+def check_updates():
+    """Compare leaderboard actuel avec stockage"""
+    old_data = load_data()
+    old_users = {u["username"]: u["elo"] for u in old_data.get("users", [])}
+    
+    leaderboard = fetch_leaderboard()
+    if not leaderboard:
+        print("⚠️ Leaderboard vide ou erreur API")
+        return
 
-        # DEBUG : afficher le JSON brut
-        print("=== DEBUG JSON ===")
-        print(leaderboard)
+    updated_users = []
+    for entry in leaderboard:
+        username = entry.get("username")
+        elo = entry.get("elo")
+        if not username or elo is None:
+            continue
 
-        players = []
-        for player in leaderboard:
-            players.append({
-                "name": player.get("username"),
-                "elo": player.get("elo")
-            })
+        old_elo = old_users.get(username)
+        if old_elo is None:
+            send_telegram_message(f"🎉 Nouveau joueur détecté: {username} avec {elo} elo")
+        elif elo != old_elo:
+            diff = elo - old_elo
+            emoji = "⬆️" if diff > 0 else "⬇️"
+            send_telegram_message(f"{emoji} {username} est passé de {old_elo} → {elo} elo ({'+' if diff>0 else ''}{diff})")
 
-        data = {
-            "last_check": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "players": players
-        }
+        updated_users.append({"username": username, "elo": elo})
 
-        save_data(data)
+    save_data(updated_users)
+    print(f"[OK] Sauvegarde effectuée avec {len(updated_users)} joueurs")
 
-        for p in players:
-            if p["elo"] >= 8000:
-                send_telegram_message(f"🔥 {p['name']} est maintenant à {p['elo']} ELO !")
-
-    except Exception as e:
-        print("❌ Erreur check_leaderboard:", e)
-        # Forcer quand même une sauvegarde vide
-        save_data({"last_check": time.strftime("%Y-%m-%d %H:%M:%S"), "players": []})
-
-def start_loop():
+if __name__ == "__main__":
     while True:
-        check_leaderboard()
-        time.sleep(300)
-
-# Lancer directement une première vérif
-check_leaderboard()
-
-threading.Thread(target=start_loop, daemon=True).start()
-
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Bot is running!"
-
-@app.route('/show-logs')
-def show_logs():
-    return load_data()
+        print("🔄 Vérification du leaderboard...")
+        check_updates()
+        time.sleep(300)  # 5 minutes
