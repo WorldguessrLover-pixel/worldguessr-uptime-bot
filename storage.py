@@ -1,25 +1,29 @@
-import json
 import os
+import json
+from flask import Flask
 
-FILE_PATH = "storage.json"
+app = Flask(__name__)
+STORAGE_FILE = "storage.json"
 
-def init_storage():
-    """Crée le fichier storage.json s'il n'existe pas encore."""
-    if not os.path.exists(FILE_PATH):
-        with open(FILE_PATH, "w") as f:
-            json.dump({}, f, indent=4)
+@app.route("/")
+def home():
+    return "✅ Bot et API en ligne."
 
-def load_data():
-    """Charge les données depuis storage.json, ou renvoie {} si vide."""
-    if not os.path.exists(FILE_PATH):
-        return {}
-    with open(FILE_PATH, "r") as f:
-        return json.load(f)
+@app.route("/show-logs")
+def show_logs():
+    if os.path.exists(STORAGE_FILE):
+        try:
+            with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return app.response_class(
+                response=json.dumps(data, indent=4, ensure_ascii=False),
+                mimetype="application/json"
+            )
+        except json.JSONDecodeError:
+            return "Erreur: storage.json est corrompu.", 500
+    else:
+        return "storage.json n'existe pas encore."
 
-def save_data(data):
-    """Sauvegarde systématiquement les données dans storage.json."""
-    with open(FILE_PATH, "w") as f:
-        json.dump(data, f, indent=4)
-
-# On initialise le storage au démarrage
-init_storage()
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
