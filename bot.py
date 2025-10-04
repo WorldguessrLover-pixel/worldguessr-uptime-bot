@@ -1,5 +1,6 @@
 import requests
 import os
+import time
 from datetime import datetime
 from storage import load_data, save_data
 
@@ -8,15 +9,17 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 LEADERBOARD_URL = os.getenv("LEADERBOARD_URL")
 
+CHECK_INTERVAL = 300  # 5 minutes
+
 
 def fetch_leaderboard():
-    """Récupère les données du leaderboard depuis l'URL."""
+    """Récupère les données du leaderboard depuis l'URL (JSON attendu)."""
     try:
         response = requests.get(LEADERBOARD_URL, timeout=10)
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"[{datetime.now()}] Erreur lors du fetch leaderboard: {e}")
+        print(f"[{datetime.now()}] ❌ Erreur lors du fetch leaderboard: {e}")
         return []
 
 
@@ -31,13 +34,11 @@ def send_telegram_message(message):
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"[{datetime.now()}] Erreur envoi Telegram: {e}")
+        print(f"[{datetime.now()}] ❌ Erreur envoi Telegram: {e}")
 
 
-def run_check():
+def check_leaderboard():
     """Compare le leaderboard actuel avec les données sauvegardées."""
-    print(f"[{datetime.now()}] 🔄 Vérification du leaderboard...")
-
     old_data = load_data()
     old_players = {p["username"]: p["elo"] for p in old_data.get("players", [])}
 
@@ -68,3 +69,18 @@ def run_check():
     # Envoie les messages Telegram si changement
     for msg in messages:
         send_telegram_message(msg)
+
+
+def main():
+    """Boucle principale qui tourne toutes les 5 minutes."""
+    print("✅ Bot démarré et tourne en continu...")
+    while True:
+        try:
+            check_leaderboard()
+        except Exception as e:
+            print(f"❌ Erreur dans main loop: {e}")
+        time.sleep(CHECK_INTERVAL)
+
+
+if __name__ == "__main__":
+    main()
