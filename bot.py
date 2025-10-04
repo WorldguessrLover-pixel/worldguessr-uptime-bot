@@ -1,6 +1,5 @@
 import requests
 import os
-import time
 from datetime import datetime
 from storage import load_data, save_data
 
@@ -8,8 +7,6 @@ from storage import load_data, save_data
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 LEADERBOARD_URL = os.getenv("LEADERBOARD_URL")
-
-CHECK_INTERVAL = 300  # 5 minutes
 
 
 def fetch_leaderboard():
@@ -37,8 +34,10 @@ def send_telegram_message(message):
         print(f"[{datetime.now()}] Erreur envoi Telegram: {e}")
 
 
-def check_leaderboard():
+def run_check():
     """Compare le leaderboard actuel avec les données sauvegardées."""
+    print(f"[{datetime.now()}] 🔄 Vérification du leaderboard...")
+
     old_data = load_data()
     old_players = {p["username"]: p["elo"] for p in old_data.get("players", [])}
 
@@ -69,15 +68,3 @@ def check_leaderboard():
     # Envoie les messages Telegram si changement
     for msg in messages:
         send_telegram_message(msg)
-
-
-def main():
-    """Boucle principale qui tourne toutes les 5 minutes."""
-    print("✅ Bot démarré et tourne en continu...")
-    while True:
-        check_leaderboard()
-        time.sleep(CHECK_INTERVAL)
-
-
-if __name__ == "__main__":
-    main()
